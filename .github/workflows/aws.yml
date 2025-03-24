@@ -64,7 +64,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             export profile="staging"
-            aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
             docker stop pbs-ai || true
             docker rm -f $(docker ps -aq) && docker rmi -f $(docker images -aq)
             docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:pbs-ai
