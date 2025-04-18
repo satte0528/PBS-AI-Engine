@@ -1,8 +1,12 @@
 fastapi~=0.115.11
 uvicorn
-PyPDF2~=3.0.1
-sentence-transformers
-torch
-nltk~=3.9.1
-flashtext~=2.7
 python-multipart
+boto3
+starlette
+loguru
+pydantic
+pydantic-settings
+nltk~=3.9.1
+phonenumbers~=9.0.3
+python-docx
+PyMuPDF

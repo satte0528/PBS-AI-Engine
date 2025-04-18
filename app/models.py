@@ -1,4 +1,15 @@
-from sentence_transformers import SentenceTransformer
+# app/models.py
 
-# Load NLP model once and reuse it
-model = SentenceTransformer("all-MiniLM-L6-v2")
+from pydantic import BaseModel
+from typing import List
+
+
+class UploadResponse(BaseModel):
+    resume_id: str
+    message: str
+
+
+class ResumeData(BaseModel):
+    emails: List[str]
+    phones: List[str]
+    skills: List[str]

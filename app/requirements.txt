@@ -4,3 +4,8 @@ PyPDF2
 spacy
 sentence-transformers
 torch
+boto3
+pyresparser
+loguru
+PyMuPDF
+phonenumbers

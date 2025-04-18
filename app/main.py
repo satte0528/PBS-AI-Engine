@@ -1,13 +1,10 @@
+# app/main.py
+
 from fastapi import FastAPI
-from app.routers import match
+from app.config import settings
+from app.routers.resume import router as resume_router
 
+app = FastAPI(title=settings.app_name)
 
-app = FastAPI(title="ML Resume Matcher API")
-
-
-app.include_router(match.router)
-
-
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the ML Resume Matcher API"}
+# mount the resume router
+app.include_router(resume_router)
