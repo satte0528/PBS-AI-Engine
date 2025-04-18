@@ -10,7 +10,7 @@ from opensearchpy import OpenSearch, RequestsHttpConnection
 
 
 def load_aws_secret(secret_name: str):
-    client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION", "us‑east‑1"))
+    client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION", "us-east-1"))
     try:
         resp = client.get_secret_value(SecretId=secret_name)
         return json.loads(resp["SecretString"])
