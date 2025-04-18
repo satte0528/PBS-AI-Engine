@@ -106,4 +106,5 @@ def parse_resume(path: str, default_region: str = None) -> dict:
         "emails": extract_all_emails(text),
         "phones": extract_all_phones(text, default_region),
         "skills": extract_skills(text),
+        "full_text": text,
     }

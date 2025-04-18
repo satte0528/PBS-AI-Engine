@@ -10,3 +10,5 @@ nltk~=3.9.1
 phonenumbers~=9.0.3
 python-docx
 PyMuPDF
+opensearch-py
+requests-aws4auth

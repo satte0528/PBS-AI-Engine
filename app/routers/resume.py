@@ -7,15 +7,18 @@ from datetime import datetime
 
 from fastapi import APIRouter, File, UploadFile, BackgroundTasks, HTTPException
 
-from app.config import settings, s3_client, ddb_table
 from app.utils import parse_resume
 from app.models import UploadResponse
+from app.config import settings, s3_client, ddb_table, os_client
+from app.models import SearchRequest, ResumeMatch, SearchResponse
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
 
 def process_and_store(user_id: str, resume_id: str, s3_key: str, local_path: str):
     data = parse_resume(local_path, default_region="US")
+
+    # 1) Write to DynamoDB
     item = {
         "user_id": user_id,
         "resume_id": resume_id,
@@ -23,9 +26,19 @@ def process_and_store(user_id: str, resume_id: str, s3_key: str, local_path: str
         "emails": data["emails"],
         "phones": data["phones"],
         "skills": data["skills"],
+        "full_text": data["full_text"],
         "uploaded_at": datetime.utcnow().isoformat() + "Z",
     }
     ddb_table.put_item(Item=item)
+
+    # 2) Index into OpenSearch
+    os_client.index(
+        index=settings.opensearch_index,
+        id=resume_id,
+        body=item
+    )
+
+    # 3) Cleanup
     try:
         os.remove(local_path)
     except OSError:
@@ -64,3 +77,52 @@ async def upload_resume(
         resume_id=resume_id,
         message="Upload successful; parsing & storage enqueued."
     )
+
+
+@router.post("/search", response_model=SearchResponse)
+async def search_resumes(request: SearchRequest):
+    """
+    Use OpenSearch full-text + skills match with fuzziness and threshold.
+    """
+    jd = request.job_description
+    thr = request.threshold
+
+    # Construct a bool query: multi_match across skills & full_text
+    query = {
+        "size": 50,
+        "query": {
+            "bool": {
+                "should": [
+                    {
+                        "multi_match": {
+                            "query": jd,
+                            "fields": ["skills^2", "full_text"],
+                            "type": "most_fields",
+                            "fuzziness": "AUTO",
+                            "minimum_should_match": f"{int(thr)}%"
+                        }
+                    }
+                ],
+                "minimum_should_match": 1
+            }
+        }
+    }
+
+    try:
+        res = os_client.search(index=settings.opensearch_index, body=query)
+    except Exception as e:
+        raise HTTPException(500, f"OpenSearch query failed: {e}")
+
+    matches = []
+    for hit in res["hits"]["hits"]:
+        src = hit["_source"]
+
+        matches.append(ResumeMatch(
+            resume_id=src["resume_id"],
+            emails=src.get("emails", []),
+            phones=src.get("phones", []),
+            skills=src.get("skills", []),
+            s3_key=src.get("s3_key", ""),
+        ))
+
+    return SearchResponse(matches=matches)
