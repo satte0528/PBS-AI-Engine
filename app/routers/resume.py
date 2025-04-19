@@ -5,6 +5,7 @@ import uuid
 import tempfile
 from datetime import datetime
 
+from boto3.dynamodb.conditions import Key
 from fastapi import APIRouter, File, UploadFile, BackgroundTasks, HTTPException
 
 from app.utils import parse_resume
@@ -132,3 +133,45 @@ async def search_resumes(request: SearchRequest):
         ))
 
     return SearchResponse(matches=matches)
+
+
+@router.delete("/{user_id}")
+async def delete_user_resumes(user_id: str):
+    # 1) Query DynamoDB for all resumes of the user
+    try:
+        resp = ddb_table.query(
+            KeyConditionExpression=Key("user_id").eq(user_id),
+            ProjectionExpression="resume_id, s3_key"
+        )
+    except Exception as e:
+        raise HTTPException(500, f"DynamoDB query failed: {e}")
+    items = resp.get("Items", [])
+    if not items:
+        raise HTTPException(404, "No resumes found for user")
+
+    deleted = []
+    for item in items:
+        resume_id = item["resume_id"]
+        s3_key = item["s3_key"]
+
+        # Delete from S3
+        try:
+            s3_client.delete_object(Bucket=settings.s3_bucket, Key=s3_key)
+        except Exception:
+            pass
+
+        # Delete from OpenSearch
+        try:
+            os_client.delete(index=settings.opensearch_index, id=resume_id)
+        except Exception:
+            pass
+
+        # Delete from DynamoDB
+        try:
+            ddb_table.delete_item(Key={"user_id": user_id, "resume_id": resume_id})
+        except Exception:
+            pass
+
+        deleted.append(resume_id)
+
+    return {"deleted_resumes": deleted, "message": f"Deleted resume for user {user_id}"}
