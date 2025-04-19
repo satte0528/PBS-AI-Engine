@@ -24,7 +24,7 @@ class ResumeMatch(BaseModel):
     emails: List[str] = Field(..., description="Extracted email addresses from the resume")
     phones: List[str] = Field(..., description="Extracted phone numbers from the resume")
     skills: List[str] = Field(..., description="Extracted skills from the resume")
-    s3_key: str = Field(..., description="S3 object key where the resume is stored")
+    download_url: str = Field(..., description="Presigned S3 URL valid for 10 minutes")
 
 
 class SearchResponse(BaseModel):

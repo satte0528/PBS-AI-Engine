@@ -117,12 +117,18 @@ async def search_resumes(request: SearchRequest):
     for hit in res["hits"]["hits"]:
         src = hit["_source"]
 
+        download_url = s3_client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": settings.s3_bucket, "Key": src["s3_key"]},
+            ExpiresIn=600
+        )
+
         matches.append(ResumeMatch(
             resume_id=src["resume_id"],
             emails=src.get("emails", []),
             phones=src.get("phones", []),
             skills=src.get("skills", []),
-            s3_key=src.get("s3_key", ""),
+            download_url=download_url
         ))
 
     return SearchResponse(matches=matches)
