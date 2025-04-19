@@ -175,3 +175,41 @@ async def delete_user_resumes(user_id: str):
         deleted.append(resume_id)
 
     return {"deleted_resumes": deleted, "message": f"Deleted resume for user {user_id}"}
+
+
+@router.get("/all")
+async def list_all_resumes():
+    # 1) Scan DynamoDB for all resume items
+    try:
+        resp = ddb_table.scan(
+            ProjectionExpression="user_id, resume_id, phones, emails, s3_key, uploaded_at"
+        )
+    except Exception as e:
+        raise HTTPException(500, f"DynamoDB scan failed: {e}")
+    items = resp.get("Items", [])
+
+    # 2) Build list with presigned URLs
+    results = []
+    for item in items:
+        s3_key = item.get("s3_key")
+        download_url = None
+        if s3_key:
+            try:
+                download_url = s3_client.generate_presigned_url(
+                    ClientMethod="get_object",
+                    Params={"Bucket": settings.s3_bucket, "Key": s3_key},
+                    ExpiresIn=600
+                )
+            except Exception:
+                download_url = None
+
+        results.append({
+            "user_id":    item.get("user_id"),
+            "resume_id":  item.get("resume_id"),
+            "emails": item.get("emails"),
+            "phones": item.get("phones"),
+            "uploaded_at": item.get("uploaded_at"),
+            "download_url": download_url
+        })
+
+    return {"resumes": results, "total": len(results)}
