@@ -27,5 +27,10 @@ class ResumeMatch(BaseModel):
     download_url: str = Field(..., description="Presigned S3 URL valid for 10 minutes")
 
 
+class DocumentInfo(BaseModel):
+    document_id: str
+    download_url: str
+
+
 class SearchResponse(BaseModel):
     matches: List[ResumeMatch] = Field(..., description="List of resumes meeting the search criteria")

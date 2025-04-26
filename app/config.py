@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     aws_region: str = "us-east-1"
-    s3_bucket: str
+    s3_bucket_dms: str
+    s3_bucket_resume: str
     dynamo_table: str
     opensearch_host: str
     opensearch_index: str

@@ -37,6 +37,17 @@ def extract_all_phones(text: str, default_region: str = None) -> List[str]:
     return list(set(found))
 
 
+def extract_full_text_from_textract(response):
+    # Keep only the LINE blocks
+    lines = [b for b in response["Blocks"] if b["BlockType"] == "LINE"]
+
+    # Sort by their vertical position on the page
+    lines.sort(key=lambda l: l["Geometry"]["BoundingBox"]["Top"])
+
+    # Concatenate into one big string, with line breaks
+    return "\n".join(l["Text"] for l in lines)
+
+
 def extract_text_from_file(path: str) -> str:
     path_lower = path.lower()
     if path_lower.endswith(".pdf"):

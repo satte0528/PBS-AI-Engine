@@ -16,7 +16,7 @@ from app.models import SearchRequest, ResumeMatch, SearchResponse
 router = APIRouter(prefix="/resume", tags=["resume"])
 
 
-def process_and_store(user_id: str, resume_id: str, s3_key: str, local_path: str):
+def process_and_store_resume(user_id: str, resume_id: str, s3_key: str, local_path: str):
     data = parse_resume(local_path, default_region="US")
 
     # 1) Write to DynamoDB
@@ -65,13 +65,13 @@ async def upload_resume(
         raise HTTPException(500, f"Failed to save upload: {e}")
 
     try:
-        s3_client.upload_file(tmp_path, settings.s3_bucket, s3_key)
+        s3_client.upload_file(tmp_path, settings.s3_bucket_resume, s3_key)
     except Exception as e:
         os.remove(tmp_path)
         raise HTTPException(500, f"S3 upload failed: {e}")
 
     background_tasks.add_task(
-        process_and_store, user_id, resume_id, s3_key, tmp_path
+        process_and_store_resume, user_id, resume_id, s3_key, tmp_path
     )
 
     return UploadResponse(
@@ -120,7 +120,7 @@ async def search_resumes(request: SearchRequest):
 
         download_url = s3_client.generate_presigned_url(
             ClientMethod="get_object",
-            Params={"Bucket": settings.s3_bucket, "Key": src["s3_key"]},
+            Params={"Bucket": settings.s3_bucket_resume, "Key": src["s3_key"]},
             ExpiresIn=600
         )
 
@@ -156,7 +156,7 @@ async def delete_user_resumes(user_id: str):
 
         # Delete from S3
         try:
-            s3_client.delete_object(Bucket=settings.s3_bucket, Key=s3_key)
+            s3_client.delete_object(Bucket=settings.s3_bucket_resume, Key=s3_key)
         except Exception:
             pass
 
@@ -197,7 +197,7 @@ async def list_all_resumes():
             try:
                 download_url = s3_client.generate_presigned_url(
                     ClientMethod="get_object",
-                    Params={"Bucket": settings.s3_bucket, "Key": s3_key},
+                    Params={"Bucket": settings.s3_bucket_resume, "Key": s3_key},
                     ExpiresIn=600
                 )
             except Exception:
