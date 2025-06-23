@@ -7,7 +7,11 @@ from botocore.exceptions import ClientError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from requests_aws4auth import AWS4Auth
 from opensearchpy import OpenSearch, RequestsHttpConnection
+import psycopg2
+from urllib.parse import urlparse
+from dotenv import load_dotenv
 
+load_dotenv()
 
 def load_aws_secret(secret_name: str):
     client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION", "us-east-1"))
@@ -95,3 +99,36 @@ if not os_client.indices.exists(index=settings.opensearch_index):
         }
     }
     os_client.indices.create(index=settings.opensearch_index, body=mapping)
+class DbConnection:
+    def __init__(self):
+        # Load secrets
+        secret_name = os.getenv("AWS_RDS_SECRET_NAME", "pb-datasource")
+        region = os.getenv("AWS_REGION", "us-east-1")
+
+        client = boto3.client("secretsmanager", region_name=region)
+        response = client.get_secret_value(SecretId=secret_name)
+        secret = json.loads(response["SecretString"])
+
+        # Parse JDBC URL
+        url = secret["url"].replace("jdbc:", "")
+        parsed = urlparse(url)
+
+        self.conn = psycopg2.connect(
+            host=parsed.hostname,
+            port=parsed.port,
+            database=parsed.path.lstrip("/"),
+            user=secret["username"],
+            password=secret["password"]
+        )
+
+        # Optional: test query
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT 1;")
+            print("✅ RDS connection verified.")
+
+    def get_cursor(self):
+        return self.conn.cursor()
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
