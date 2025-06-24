@@ -13,6 +13,7 @@ from app.models import UploadResponse
 from app.config import settings, s3_client, ddb_table, os_client
 from app.models import SearchRequest, ResumeMatch, SearchResponse
 
+
 router = APIRouter(prefix="/resume", tags=["resume"])
 
 

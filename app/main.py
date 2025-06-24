@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers.resume import router as resume_router
 from app.routers.dms import router as dms_router
-
+from app.routers.candidates import router as candidates_router
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
     CORSMiddleware,
@@ -18,3 +18,5 @@ app.add_middleware(
 # mount the resume router
 app.include_router(resume_router)
 app.include_router(dms_router)
+app.include_router(candidates_router)
+

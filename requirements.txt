@@ -12,3 +12,4 @@ python-docx
 PyMuPDF
 opensearch-py
 requests-aws4auth
+rapidfuzz

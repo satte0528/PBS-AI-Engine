@@ -7,7 +7,15 @@ from docx import Document # don't manually import this, this is imported from py
 import nltk
 import phonenumbers
 import ssl
-
+from app.config import DbConnection
+from app.models import ResumeMatch, SearchResponse
+from typing import Optional, Dict
+from fastapi import HTTPException
+from app.config import settings, os_client, s3_client
+from typing import List
+from app.models import ResumeMatch, JobMatch, JobSearchResponse
+from app.config import DbConnection
+from rapidfuzz import fuzz
 try:
     _create_unverified = ssl._create_unverified_context
 except AttributeError:
@@ -120,3 +128,141 @@ def parse_resume(path: str, default_region: str = None) -> dict:
         "skills": extract_skills(text),
         "full_text": text,
     }
+
+
+def get_candidate_resume_by_id(candidate_id: int) -> Optional[Dict]:
+    db = DbConnection()
+    cur = None
+    try:
+        cur = db.get_cursor()
+        cur.execute("""
+            SELECT * FROM public.candidates
+            WHERE id = %s
+        """, (candidate_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        columns = [col.name for col in cur.description]
+        return dict(zip(columns, row))
+    finally:
+        if cur:
+            cur.close()
+        db.close()
+
+
+
+
+def get_candidate_resume_by_name(candidate_name: str) -> SearchResponse:
+    # Build fuzzy search query on candidate name
+    query = {
+        "size": 50,
+        "query": {
+            "bool": {
+                "should": [
+                    {
+                        "multi_match": {
+                            "query": candidate_name,
+                            "type": "most_fields",
+                            "fuzziness": "AUTO",
+                            "minimum_should_match": f"{int(100)}%"
+                        }
+                    }
+                ],
+                "minimum_should_match": 1
+            }
+        }
+    }
+
+    try:
+        res = os_client.search(index=settings.opensearch_index, body=query)
+    except Exception as e:
+        raise HTTPException(500, f"OpenSearch query failed: {e}")
+
+    hits = res.get("hits", {}).get("hits", [])
+    if not hits:
+        return SearchResponse(matches=[])
+
+    matches: List[ResumeMatch] = []
+    for hit in hits:
+        src = hit["_source"]
+        try:
+            download_url = s3_client.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": settings.s3_bucket_resume, "Key": src["s3_key"]},
+                ExpiresIn=600
+            )
+        except Exception as e:
+            raise HTTPException(500, f"Failed to generate download URL: {e}")
+
+        matches.append(ResumeMatch(
+            resume_id=src["resume_id"],
+            emails=src.get("emails", []),
+            phones=src.get("phones", []),
+            skills=src.get("skills", []),
+            download_url=download_url
+        ))
+
+    return SearchResponse(matches=matches)
+
+
+
+def fuzzy_match_jobs_from_resume(
+    resume: ResumeMatch,
+    threshold: float = 60.0
+) -> JobSearchResponse:
+    # 1) Clean up the skills_text
+    skills = [
+        re.sub(r"^Skills[:：]\s*", "", s, flags=re.IGNORECASE)
+        for s in resume.skills or []
+    ]
+    skills_text = " ".join(skills)
+
+    db = DbConnection()
+    cur = db.get_cursor()
+    try:
+        cur.execute("""
+            SELECT id, job_title, job_description, job_location, job_type,
+                   required_yoe, accepted_work_auth, company_name, job_promotion
+            FROM jobs
+            WHERE job_status = 'ACTIVE'
+        """)
+        jobs = cur.fetchall()
+
+        matches: List[JobMatch] = []
+
+        for job in jobs:
+            (
+                job_id, title, desc, location, jtype,
+                yoe, auth, company, promo
+            ) = job
+
+            # 2) Combine title + description
+            combined = f"{title or ''} {desc or ''}"
+
+            # 3) Compute a weighted fuzzy score
+            score = fuzz.WRatio(skills_text, combined)
+
+            # 4) DEBUG: print or log each score
+            print(f"[DEBUG] Job {job_id} ('{title}') → score: {score}")
+
+            if score >= threshold:
+                matches.append(JobMatch(
+                    job_id=job_id,
+                    job_title=title,
+                    job_description=desc,
+                    job_location=location,
+                    job_type=jtype,
+                    required_yoe=yoe,
+                    accepted_work_auth=auth,
+                    company_name=company,
+                    job_promotion=promo,
+                    match_score=round(score, 2)
+                ))
+
+        # 5) Sort descending
+        matches.sort(key=lambda m: m.match_score, reverse=True)
+        return JobSearchResponse(matches=matches)
+
+    finally:
+        cur.close()
+        db.close()
