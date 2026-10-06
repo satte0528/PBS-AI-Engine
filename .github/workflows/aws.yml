@@ -4,10 +4,16 @@ on:
   workflow_dispatch: # for manual triggering
 
 env:
-  ECR_REGISTRY: 810261962343.dkr.ecr.us-east-1.amazonaws.com
-  ECR_REPOSITORY: pbsvision/staging
   AWS_REGION: us-east-1
-  PBS_AI_EC2_PUBLIC_IP: "44.193.254.53"
+
+  # New AWS account ECR registry
+  ECR_REGISTRY: 561848170666.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: pbs-ai-engine/staging
+  IMAGE_TAG: latest
+
+  # ECS deployment settings
+  ECS_CLUSTER: pbs-staging
+  ECS_SERVICE: pbs-ai-engine
 
 jobs:
   build-and-deploy:
@@ -15,10 +21,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -28,44 +34,17 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push PBS AI Docker image to ECR
+      - name: Build and push PBS Service Docker image to ECR
         env:
-          ECR_REPO_URL: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+          IMAGE_URI: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
         run: |
-          docker build -t $ECR_REPO_URL:pbs-ai .
-          docker push $ECR_REPO_URL:pbs-ai
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
 
-      - name: Clean up untagged images from ECR
-        env:
-          ECR_REPO_URL: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+      - name: Force ECS service deployment
         run: |
-          untagged_images=$(aws ecr list-images --repository-name $ECR_REPOSITORY --filter "tagStatus=UNTAGGED" --query 'imageIds[*]' --region $AWS_REGION --output json)
-          if [ "$untagged_images" != "[]" ]; then
-            aws ecr batch-delete-image --repository-name $ECR_REPOSITORY --image-ids "$untagged_images" --region $AWS_REGION
-          fi
-
-      - name: Install Docker on PBS-AI EC2 instance
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ env.PBS_AI_EC2_PUBLIC_IP }}
-          username: ec2-user
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            sudo yum update -y
-            sudo dnf install docker -y
-            sudo systemctl start docker
-            sudo usermod -aG docker ec2-user
-
-      - name: SSH Deploy PBS-AI to EC2
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ env.PBS_AI_EC2_PUBLIC_IP }}
-          username: ec2-user
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            export profile="staging"
-            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
-            docker stop pbs-ai || true
-            docker rm -f $(docker ps -aq) && docker rmi -f $(docker images -aq)
-            docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:pbs-ai
-            docker run -d -p 8000:8000 --name pbs-ai --env profile=${profile} ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:pbs-ai
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment \
+            --region $AWS_REGION

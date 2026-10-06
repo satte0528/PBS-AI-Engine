@@ -18,7 +18,7 @@ def load_aws_secret(secret_name: str):
         raise RuntimeError(f"Unable to fetch secrets: {e}")
 
 
-secret = load_aws_secret("service-secrets")
+secret = load_aws_secret("staging/pbs-ai-engine")
 os.environ.update(secret)
 
 
